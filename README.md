@@ -9,7 +9,7 @@ before any math runs on them.
 ## Prerequisites
 
 - Node.js 22 or later (tested on v24)
-- Nothing else — this suite makes no browsers necessary at all (API-only).
+- No browsers required (API-only).
 
 ## Install
 
@@ -48,15 +48,15 @@ Three reporters run on every invocation:
 src/
   api/
     schemas.ts             # zod schemas + inferred types for both endpoints
-    wallet-api-client.ts    # thin, typed client wrapping the two endpoints
+    wallet-api-client.ts   # thin, typed client wrapping the two endpoints
   test-data/
-    addresses.ts            # the two assignment-specified wallet addresses
+    addresses.ts           # the two assignment-specified wallet addresses
   utils/
-    money.ts                 # tolerance-based money comparison helper
+    money.ts               # tolerance-based money comparison helper
 tests/
-  portfolio-value.spec.ts   # Scenario 1 and 2 (the required scenarios)
-  negative-cases.spec.ts    # negative/edge-case inputs — see below
-playwright.config.ts         # reporters, retries, baseURL, auth header
+  portfolio-value.spec.ts  # Scenario 1 and 2 (the required scenarios)
+  negative-cases.spec.ts   # negative/edge-case inputs — see below
+playwright.config.ts       # reporters, retries, baseURL, auth header
 tsconfig.json
 ```
 
@@ -79,10 +79,11 @@ validated shape.
 Notes on the underlying data:
 - `totalUiAmount` is already decimal-scaled (e.g. `0.01001`, not the raw
   `"10010000"` integer) — used directly, never rescaled by `decimals`.
-- A token with no known price omits the `price` field entirely (it is not
-  present as `price: null`) — treated as contributing `0` to any value sum.
-  The schema accepts both forms defensively, since only "absent" has been
-  observed live.
+- A token with no known price **omits the `price` field entirely** rather
+  than sending `price: null` — observed live on address
+  `96Y3j66AX16noUAAVriW8bmwTGzV1PVqBKCEArPd5fuU`, tokens `ICSG` and `JUJI`.
+  Treated as contributing `0` to any value sum; the schema accepts both
+  `null` and "absent" defensively, since only the latter has been observed.
 - `POST /v2/portfolio/balances` is called once per Scenario-2 test with
   **both** addresses in a single `pubkeys` array (not two separate POSTs) —
   matching how the endpoint is designed to batch wallets, and making "net
@@ -107,7 +108,7 @@ All money comparisons go through `assertMoneyClose()` in
   in practice, but doesn't rely on it being exactly zero.
 
 A third, situational tolerance is used only for the optional raw-amount
-cross-check (see Findings #3 below): a **per-token** tolerance of exactly
+cross-check (see Findings #2 below): a **per-token** tolerance of exactly
 `10^-decimals` (one base unit), because the API truncates displayed amounts
 to each token's own decimal precision — a fixed tolerance would be far too
 loose for small-decimals tokens and unnecessarily tight for others.
@@ -123,7 +124,7 @@ require updating them.
 
 | Input | Status | Notes |
 |---|---|---|
-| Missing `Authorization` header | 401/403 | Rejected at the **Cloudflare edge**, before Solflare's application ever sees the request (see Findings #4) |
+| Missing `Authorization` header | 401/403 | Rejected at the **Cloudflare edge**, before Solflare's application ever sees the request (see Findings #3) |
 | Malformed (non-uuid) bearer value | 403 | Rejected by the **application** — plain-text `Invalid API key!` |
 | Invalid address | 400 | JSON `HttpValidationError` |
 | Unsupported `network` value | 400 | JSON `HttpValidationError` |
@@ -145,6 +146,34 @@ code-related) failure is possible. Retries are `0` locally, `1` in CI
 hiding a real regression — a failure that doesn't pass on retry is worth
 looking at, not just re-running again.
 
+## Implementation notes
+
+Two non-obvious things about Playwright Test's own behavior, discovered
+while building this suite, that shaped how `playwright.config.ts` and
+`tests/negative-cases.spec.ts` are written:
+
+- **Config `use` options apply to every `APIRequestContext`, not just the
+  `request` fixture.** A context built via the standalone
+  `request.newContext()` factory, with no `extraHTTPHeaders` of its own
+  specified, still silently inherited this suite's configured
+  `Authorization` header (confirmed directly via a temporary header-echo
+  diagnostic). Producing a genuinely header-less request — needed for the
+  missing-Authorization negative case — required passing
+  `extraHTTPHeaders: {}` explicitly to override it, not just omitting the
+  option.
+- **This config module is imported more than once per run.** Playwright's
+  main/orchestrator process imports `playwright.config.ts` to plan the run
+  (worker count, reporters, etc.) — it never sends any HTTP request itself
+  — and each worker process imports it again to build its own fixtures.
+  With more than one worker, each would generate its own `appInstallId`,
+  breaking "one uuid4 per run simulates one app install." `workers: 1` is
+  pinned for exactly this reason (the suite is small enough that this costs
+  nothing), and the UUID log line is additionally gated on
+  `TEST_WORKER_INDEX` (set by Playwright only inside worker processes) so
+  it prints exactly once — the orchestrator process's import would
+  otherwise print a second, unused UUID that's never actually sent in a
+  request.
+
 ## Findings
 
 Discrepancies found against the live API while building this suite. Each
@@ -152,15 +181,7 @@ was investigated to its root cause and fixed properly — corrected
 assertions/schemas to match real, verified API behavior — rather than
 loosened or excluded to make a failure go away.
 
-### 1. `price` is absent, not `null`, for tokens with no known price
-
-Some tokens in a `GET /v3/portfolio/tokens/{address}` response have no
-`price` field at all, rather than `price: null`. Observed live on address
-`96Y3j66AX16noUAAVriW8bmwTGzV1PVqBKCEArPd5fuU`, tokens `ICSG` and `JUJI`.
-The schema (`src/api/schemas.ts`) allows both `null` and "absent"
-defensively, since only the latter has actually been observed.
-
-### 2. xStock (Token-2022) tokens apply a `scalingFactor` on top of raw decimals
+### 1. xStock (Token-2022) tokens apply a `scalingFactor` on top of raw decimals
 
 Token `SPYX` (`SP500 xStock`, held by address
 `7eXxD3vQww9cgBgD3gb7iqTriAzAmCBXFBMpdDi71P3i`) is an SPL Token-2022 token
@@ -173,7 +194,7 @@ decimals:       8
 scalingFactor:  1.005714560286254
 
 308335 / 10^8                    = 0.00308335
-0.00308335 × 1.005714560286254   = 0.00310096   ✓ matches the API's totalUiAmount
+0.00308335 × 1.005714560286254   ≈ 0.0031009699894586212   (truncated by the API to 0.00310096 — see Finding #2)
 ```
 
 Without the `scalingFactor` multiplier, the computed amount is off by
@@ -181,7 +202,7 @@ Without the `scalingFactor` multiplier, the computed amount is off by
 multiplication applies) specifically on tokens with
 `standard: "spl-token-2022"`; the test asserts that pairing holds.
 
-### 3. `totalUiAmount` is truncated, not rounded, to the token's decimals
+### 2. `totalUiAmount` is truncated, not rounded, to the token's decimals
 
 Continuing the SPYX example: the full-precision computation above is
 `0.0031009699894586212`, but the API reports `totalUiAmount: 0.00310096`.
@@ -194,7 +215,7 @@ tolerance of `10^-decimals` to account for this, rather than a fixed
 tolerance (which would be far too loose for small-decimals tokens and
 unnecessarily tight for others).
 
-### 4. A missing `Authorization` header is rejected at the Cloudflare edge, not by the app
+### 3. A missing `Authorization` header is rejected at the Cloudflare edge, not by the app
 
 A request to `GET /v3/portfolio/tokens/{address}` with no `Authorization`
 header at all returns `403` with an HTML Cloudflare challenge page —
@@ -202,17 +223,9 @@ confirmed identically via curl (default User-Agent and Playwright's exact
 User-Agent) and via an isolated Playwright `APIRequestContext`, three times
 each, every time. This is Cloudflare's own edge/WAF rejecting the request
 before Solflare's application ever sees it, distinct from the malformed-
-bearer case (`Invalid API key!`), which **is** an app-level response.
-
-Getting a clean, isolated "no Authorization header" request out of
-Playwright Test took one extra step worth noting: **Playwright Test applies
-the project's `use` config — including `extraHTTPHeaders` — as defaults to
-every `APIRequestContext` created during a test run**, not just the
-`request` fixture. A context built via the standalone `request.newContext()`
-factory with no `extraHTTPHeaders` specified still silently carried this
-suite's configured `Authorization` header (confirmed directly), so the test
-had to pass `extraHTTPHeaders: {}` explicitly to actually produce a
-header-less request. The test also includes a positive control — the same
-kind of isolated context, but with a valid bearer — to directly prove the
-403 is caused by the missing header and nothing else about using an
-isolated context.
+bearer case (`Invalid API key!`), which **is** an app-level response. The
+test includes a positive control — the same kind of isolated context, but
+with a valid bearer — to directly prove the 403 is caused by the missing
+header and nothing else about using an isolated context. (See
+"Implementation notes" above for what it took to get Playwright Test to
+actually send a header-less request in the first place.)

@@ -6,7 +6,7 @@ import { assertMoneyClose, TIGHT_TOLERANCE, CROSS_ENDPOINT_TOLERANCE } from '../
 const NETWORK = 'mainnet';
 
 test.describe('Portfolio value', () => {
-    test('total value matches token math, for both addresses', async ({ request }, testInfo) => {
+    test('Scenario 1: total value matches token math, for both addresses', async ({ request }, testInfo) => {
         const client = new WalletApiClient(request);
 
         for (const address of TEST_ADDRESSES) {
@@ -113,8 +113,15 @@ test.describe('Portfolio value', () => {
                             ).toBe('spl-token-2022');
                         }
 
-                        const rawTotal = token.accounts.reduce((sum, account) => sum + Number(account.amount), 0);
-                        const expectedUiAmount = (rawTotal / 10 ** token.decimals) * (token.scalingFactor ?? 1);
+                        // Summed as BigInt, not Number: raw on-chain amounts
+                        // are provided as strings specifically because they
+                        // can exceed Number's safe integer range, and that
+                        // precision would already be lost before summing if
+                        // each were converted to Number first. Number() is
+                        // only applied once, to the final sum, right before
+                        // the floating-point division below (which needs it).
+                        const rawTotal = token.accounts.reduce((sum, account) => sum + BigInt(account.amount), 0n);
+                        const expectedUiAmount = (Number(rawTotal) / 10 ** token.decimals) * (token.scalingFactor ?? 1);
 
                         // The API truncates (not rounds) totalUiAmount to the
                         // token's decimals — discovered live on SPYX, where
@@ -137,7 +144,7 @@ test.describe('Portfolio value', () => {
         }
     });
 
-    test('net worth equals sum of per-wallet values and matches scenario 1 totals', async ({ request }, testInfo) => {
+    test('Scenario 2: net worth matches balances sum and Scenario 1 totals', async ({ request }, testInfo) => {
         const client = new WalletApiClient(request);
 
         // GET and POST are called back-to-back, right next to each other, so
