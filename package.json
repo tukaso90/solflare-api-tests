@@ -1,0 +1,20 @@
+{
+  "name": "solflare-api-tests",
+  "description": "API test suite for the Solflare wallet-api portfolio endpoints",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:report": "playwright show-report",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+
+# Playwright output
+test-results/
+playwright-report/
+blob-report/
+
+# Raw API responses saved during discovery (Phase 2) — not committed
+scratch/
