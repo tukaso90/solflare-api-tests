@@ -43,12 +43,12 @@ test.describe('Portfolio value', () => {
         for (const address of TEST_ADDRESSES) {
             await test.step(`address ${address}`, async () => {
                 const tokensResponse = await test.step('fetch tokens', async () => {
-                    const response = await client.getTokens(address, NETWORK);
-                    await testInfo.attach(`tokens-${address}.json`, {
-                        body: JSON.stringify(response, null, 2),
+                    const { raw, parsed } = await client.getTokens(address, NETWORK);
+                    await testInfo.attach(`tokens-${address}.raw.json`, {
+                        body: JSON.stringify(raw, null, 2),
                         contentType: 'application/json'
                     });
-                    return response;
+                    return parsed;
                 });
 
                 await test.step('guard: wallet actually has data', async () => {
@@ -217,13 +217,13 @@ test.describe('Portfolio value', () => {
         const tokensByAddress = await test.step('fetch tokens for both addresses', async () => {
             const results = [];
             for (const address of TEST_ADDRESSES) {
-                const response = await client.getTokens(address, NETWORK);
+                const { raw, parsed } = await client.getTokens(address, NETWORK);
                 const fetchedAt = Date.now();
-                await testInfo.attach(`tokens-${address}.json`, {
-                    body: JSON.stringify(response, null, 2),
+                await testInfo.attach(`tokens-${address}.raw.json`, {
+                    body: JSON.stringify(raw, null, 2),
                     contentType: 'application/json'
                 });
-                results.push({ address, tokens: response, fetchedAt });
+                results.push({ address, tokens: parsed, fetchedAt });
             }
             return results;
         });
@@ -231,13 +231,13 @@ test.describe('Portfolio value', () => {
         let balancesFetchedAt = 0;
         const balances = await test.step('POST balances for both addresses', async () => {
             const pubkeys = TEST_ADDRESSES.map((address) => `1${address}`);
-            const response = await client.getBalances(pubkeys, 'usd', NETWORK);
+            const { raw, parsed } = await client.getBalances(pubkeys, 'usd', NETWORK);
             balancesFetchedAt = Date.now();
-            await testInfo.attach('balances.json', {
-                body: JSON.stringify(response, null, 2),
+            await testInfo.attach('balances.raw.json', {
+                body: JSON.stringify(raw, null, 2),
                 contentType: 'application/json'
             });
-            return response;
+            return parsed;
         });
 
         await test.step('data contains exactly the two requested addresses', async () => {

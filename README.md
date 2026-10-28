@@ -38,8 +38,9 @@ Three reporters run on every invocation:
 - **list** — console output as tests run
 - **html** — written to `playwright-report/`, not opened automatically; run
   `npm run test:report` to view it (includes every `test.step`, the raw
-  JSON response and computed breakdown attached to each test, and full
-  failure details)
+  JSON response (`*.raw.json`, the actual API body, before zod parsing
+  drops any undeclared field) and computed breakdown attached to each
+  test, and full failure details)
 - **junit** — written to `test-results/junit.xml`, for CI consumption
 
 ## Project structure
