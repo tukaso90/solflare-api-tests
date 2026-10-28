@@ -86,6 +86,10 @@ Notes on the underlying data:
   `96Y3j66AX16noUAAVriW8bmwTGzV1PVqBKCEArPd5fuU`, tokens `ICSG` and `JUJI`.
   Treated as contributing `0` to any value sum; the schema accepts both
   `null` and "absent" defensively, since only the latter has been observed.
+  Any token with a positive balance but no price is additionally surfaced
+  as a `warning` annotation (not an assertion) so it's visible directly in
+  the HTML report, in addition to the existing `breakdown-*.json`
+  attachment.
 - `POST /v2/portfolio/balances` is called once per Scenario-2 test with
   **both** addresses in a single `pubkeys` array (not two separate POSTs) —
   matching how the endpoint is designed to batch wallets, and making "net
@@ -107,13 +111,21 @@ All money comparisons go through `assertMoneyClose()` in
   seconds apart) against live, moving token prices. A small real price tick
   between calls is expected behavior, not a bug; Scenario 2 calls its GETs
   and POST back-to-back specifically to keep this gap as small as possible
-  in practice, but doesn't rely on it being exactly zero.
+  in practice, but doesn't rely on it being exactly zero. Every Scenario 2
+  cross-endpoint comparison attaches a `cross-endpoint-comparison-*.json`
+  (absolute difference, percentage difference, the tolerance that was
+  allowed, and the elapsed milliseconds between the relevant GET(s) and the
+  POST) — this is the evidence behind the tolerance values above, visible
+  per-run in the HTML report rather than just asserted blind.
 
-A third, situational tolerance is used only for the optional raw-amount
-cross-check (see Findings #2 below): a **per-token** tolerance of exactly
-`10^-decimals` (one base unit), because the API truncates displayed amounts
-to each token's own decimal precision — a fixed tolerance would be far too
-loose for small-decimals tokens and unnecessarily tight for others.
+The optional raw-amount cross-check (see Finding #2 below) does **not** use
+`assertMoneyClose` — it uses a dedicated `assertTruncatedTo()` (also in
+`src/utils/money.ts`) that verifies the API's actual rounding-**down** rule
+directly: it passes only when `0 <= (full-precision computed amount -
+API's totalUiAmount) < 10^-decimals`, with a tiny relative epsilon
+(`1e-12 * |expected|`) on the lower bound to absorb float noise. A
+symmetric tolerance would also accept an upward-rounded value, which is a
+real bug, not noise.
 
 ## Negative and edge cases
 
@@ -211,11 +223,25 @@ Continuing the SPYX example: the full-precision computation above is
 Truncating (not rounding) the computed value to 8 decimal places gives
 exactly `0.00310096`; rounding would give `0.00310097`. So the API's
 reported amount can be up to (but never a full unit of) one base unit —
-i.e. `10^-decimals` — below the full-precision computed value. The
-raw-amount check in `tests/portfolio-value.spec.ts` uses a per-token
-tolerance of `10^-decimals` to account for this, rather than a fixed
-tolerance (which would be far too loose for small-decimals tokens and
-unnecessarily tight for others).
+i.e. `10^-decimals` — below the full-precision computed value, and must
+never be above it. The raw-amount check in `tests/portfolio-value.spec.ts`
+calls `assertTruncatedTo()` to verify this rounding-**down** rule directly
+— it fails on an upward-rounded value (e.g. `0.00310097` for SPYX) just as
+readily as on a value more than one base unit too low — rather than a
+symmetric tolerance, which would also silently accept the upward-rounded
+case. Covered in `tests/unit/money.spec.ts` with the truncated value
+(passes), the rounded-up value (fails), and a value one full unit lower
+(fails).
+
+**Precision limitation:** the raw per-account amounts are summed as
+`BigInt` specifically because a single account's amount can exceed
+`Number`'s safe integer range, and that sum is exact. The one unavoidable
+`Number(rawTotal)` conversion — needed for the floating-point division by
+`10^decimals` — is still lossy if the summed total itself exceeds
+`Number.MAX_SAFE_INTEGER`; when that happens for a given token, the test
+adds a `warning` annotation noting that token's cross-check is only
+approximate, rather than silently assuming full precision. No decimal
+library is used for this.
 
 ### 3. A missing `Authorization` header is rejected at the Cloudflare edge, not by the app
 
