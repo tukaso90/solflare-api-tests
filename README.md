@@ -56,6 +56,8 @@ src/
 tests/
   portfolio-value.spec.ts  # Scenario 1 and 2 (the required scenarios)
   negative-cases.spec.ts   # negative/edge-case inputs — see below
+  unit/
+    money.spec.ts          # unit tests for the money helpers — no network
 playwright.config.ts       # reporters, retries, baseURL, auth header
 tsconfig.json
 ```
