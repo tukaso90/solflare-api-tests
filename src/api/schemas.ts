@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// No .finite() on any z.number() below: Zod v4's z.number() already
+// rejects NaN/Infinity by default, so it would be redundant.
+
 // Shared shape of value/tokensValue/stocksValue in the tokens response —
 // only the fields this suite actually reads. Extra API fields (e.g.
 // solValue, onrampTokenId) are left unvalidated; zod ignores unknown keys
@@ -22,14 +25,16 @@ const PriceSchema = z
 const TokenAccountSchema = z.object({
     // Raw on-chain integer amount, as a string (Solana token amounts can
     // exceed Number's safe integer range). Only used by the optional
-    // totalUiAmount cross-check in the tests.
-    amount: z.string()
+    // totalUiAmount cross-check in the tests. Constrained to digits only —
+    // this is parsed with BigInt(), which also accepts signs/whitespace/hex
+    // that would be meaningless for an on-chain amount.
+    amount: z.string().regex(/^\d+$/)
 });
 
 const TokenSchema = z.object({
     symbol: z.string(),
     isStock: z.boolean(),
-    decimals: z.number(),
+    decimals: z.number().int().min(0),
     // Already decimal-scaled (e.g. 0.01001, not the raw "10010000"
     // integer) — confirmed against accounts[].amount / 10^decimals on the
     // live API. Use this directly; don't rescale it.
